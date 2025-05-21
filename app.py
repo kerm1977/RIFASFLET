@@ -57,6 +57,14 @@ def clear_numeros_by_person_db(nombre_persona_a_limpiar):
     conn.commit()
     conn.close()
 
+def get_winner_by_number(winning_number):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre_persona FROM numeros WHERE numero = ? AND seleccionado = 1", (winning_number,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
 def main(page: ft.Page):
     page.title = "Aplicación de Rifa Flet"
     page.vertical_alignment = ft.MainAxisAlignment.START
@@ -289,6 +297,53 @@ def main(page: ft.Page):
         )
     )
 
+    # --- NUEVA SECCIÓN: Anunciar Ganador ---
+    resultado_ganador_text = ft.Text("", size=18, weight=ft.FontWeight.BOLD) # Movido arriba
+    
+    def limpiar_resultado_ganador_mensaje(e): # Nueva función para limpiar
+        resultado_ganador_text.value = ""
+        resultado_ganador_text.color = ft.Colors.BLACK # Restablece el color
+        page.update()
+
+    numero_ganador_input = ft.TextField(
+        label="Número Ganador (00-99)",
+        width=200,
+        hint_text="Ej: 42",
+        input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]{0,2}$"),
+        on_change=limpiar_resultado_ganador_mensaje # <--- ¡CORRECCIÓN APLICADA AQUÍ!
+    )
+    
+    def anunciar_ganador(e):
+        numero = numero_ganador_input.value.strip()
+        if not numero:
+            resultado_ganador_text.value = "Por favor, ingresa un número ganador."
+            resultado_ganador_text.color = ft.Colors.RED_500
+        elif not (numero.isdigit() and 0 <= int(numero) <= 99):
+            resultado_ganador_text.value = "Número inválido. Debe ser entre 00 y 99."
+            resultado_ganador_text.color = ft.Colors.RED_500
+        else:
+            formatted_numero = str(int(numero)).zfill(2)
+            ganador = get_winner_by_number(formatted_numero)
+            
+            if ganador:
+                resultado_ganador_text.value = f"¡Felicidades, {ganador}!"
+                resultado_ganador_text.color = ft.Colors.GREEN_700
+            else:
+                resultado_ganador_text.value = f"El número {formatted_numero} no ha sido seleccionado."
+                resultado_ganador_text.color = ft.Colors.AMBER_700
+        page.update()
+
+    anunciar_ganador_button = ft.ElevatedButton(
+        "Anunciar Ganador",
+        on_click=anunciar_ganador,
+        icon=ft.Icons.STAR,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.PURPLE_600,
+            color=ft.Colors.WHITE,
+            icon_color=ft.Colors.YELLOW_ACCENT_100,
+        )
+    )
+
     page.add(
         ft.Column(
             [
@@ -326,8 +381,7 @@ def main(page: ft.Page):
                     margin=ft.margin.only(top=20)
                 ),
                 ft.Divider(),
-                # --- SECCIÓN DE LIBERAR POR CONTACTO ENVUELTA EN CONTAINER ---
-                ft.Container( # <--- ¡NUEVO CONTAINER AQUÍ!
+                ft.Container(
                     content=ft.Column(
                         [
                             ft.Text("Administración de Números", size=20, weight=ft.FontWeight.BOLD),
@@ -345,13 +399,40 @@ def main(page: ft.Page):
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=10,
                         alignment=ft.CrossAxisAlignment.CENTER,
-                        width=ft.WEB_BROWSER, # El width se aplica al Container
+                        width=ft.WEB_BROWSER,
                     ),
-                    padding=ft.padding.only(top=10, bottom=10, left=15, right=15), # <--- AHORA EL PADDING ESTÁ AQUÍ
+                    padding=ft.padding.only(top=10, bottom=10, left=15, right=15),
                     margin=ft.margin.only(top=20),
                     bgcolor=ft.Colors.BLUE_GREY_100,
                     border_radius=ft.border_radius.all(10)
-                ), # <--- FIN DEL NUEVO CONTAINER
+                ),
+                ft.Divider(),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text("Anunciar Ganador", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("Ingresa el número ganador para ver quién lo tiene:", size=14),
+                            ft.Row(
+                                [
+                                    numero_ganador_input,
+                                    anunciar_ganador_button,
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=15
+                            ),
+                            resultado_ganador_text,
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                        alignment=ft.CrossAxisAlignment.CENTER,
+                        width=ft.WEB_BROWSER,
+                    ),
+                    padding=ft.padding.only(top=10, bottom=10, left=15, right=15),
+                    margin=ft.margin.only(top=20),
+                    bgcolor=ft.Colors.LIGHT_GREEN_50,
+                    border_radius=ft.border_radius.all(10),
+                    border=ft.border.all(2, ft.Colors.LIGHT_GREEN_200)
+                ),
                 ft.Divider(),
                 reset_button_final,
                 ft.Container(height=20)
