@@ -1,5 +1,6 @@
 import flet as ft
 import sqlite3
+import os # Importar para poder borrar el archivo de la base de datos
 
 DATABASE_NAME = "rifa.db"
 
@@ -37,6 +38,7 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO configuracion (id, valor_numero, descripcion_rifa) VALUES (1, 100, '¡Participa en esta emocionante rifa y gana un premio increíble!')")
     
     # Insertar números del 00 al 99 si la tabla de números está vacía
+    # Esto asegura que los números se inserten solo una vez si no existen
     for i in range(100):
         num_str = str(i).zfill(2)
         cursor.execute("INSERT OR IGNORE INTO numeros (numero) VALUES (?)", (num_str,))
@@ -142,6 +144,23 @@ def update_configuracion_db(valor_numero, descripcion_rifa):
     conn.commit()
     conn.close()
 
+# Función de depuración para listar todos los números de la DB
+def debug_list_all_numeros():
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT numero, seleccionado, nombre_persona FROM numeros ORDER BY numero ASC")
+    all_numeros = cursor.fetchall()
+    conn.close()
+    print("\n--- Contenido actual de la tabla 'numeros' en la DB ---")
+    if not all_numeros:
+        print("La tabla 'numeros' está vacía.")
+    else:
+        for num, sel, name in all_numeros:
+            print(f"Número: {num}, Seleccionado: {sel}, Por: {name if name else 'N/A'}")
+    print(f"Total de números en la DB: {len(all_numeros)}")
+    print("---------------------------------------------------\n")
+
+
 def main(page: ft.Page):
     page.title = "Aplicación de Rifa Flet"
     page.vertical_alignment = ft.MainAxisAlignment.START
@@ -150,6 +169,8 @@ def main(page: ft.Page):
     page.window_min_height = 600
 
     init_db()
+    # Llama a la función de depuración al inicio para verificar la DB
+    debug_list_all_numeros() 
 
     global current_valor_numero, current_descripcion_rifa
     current_valor_numero, current_descripcion_rifa = get_configuracion_db()
@@ -177,12 +198,14 @@ def main(page: ft.Page):
     )
     
     numeros_grid_view = ft.GridView(
-        runs_count=5,
-        max_extent=150,
-        child_aspect_ratio=1.5,
-        spacing=10,
-        run_spacing=10,
-        expand=True,
+        runs_count=5, # Intenta 5 columnas
+        max_extent=150, # Ancho máximo de cada "celda"
+        child_aspect_ratio=1.5, # Relación de aspecto (ancho/alto) de las celdas
+        spacing=10, # Espacio entre celdas en el eje principal (vertical si scroll es vertical)
+        run_spacing=10, # Espacio entre celdas en el eje cruzado (horizontal si scroll es vertical)
+        expand=True, # Permite que el GridView se expanda para ocupar el espacio disponible
+        # cache_extent=1000, # Aumentar si se ven problemas de renderizado al hacer scroll rápido
+        # auto_scroll=False # Generalmente False para GridView si se espera scroll manual
     )
 
     lista_seleccionados_column = ft.Column(
@@ -250,7 +273,7 @@ def main(page: ft.Page):
             page.update()
 
     def actualizar_numeros_ui():
-        numeros_grid_view.controls.clear()
+        numeros_grid_view.controls.clear() # Limpia los controles antes de añadir nuevos
         todos_los_numeros = get_numeros()
         
         current_nombre = nombre_input.value.strip()
@@ -287,15 +310,15 @@ def main(page: ft.Page):
 
                 seleccionar_numero(numero, current_nombre)
                 mensaje_error.value = ""
-                actualizar_ui() # Esto actualizará también los conteos
-                page.update()
+                actualizar_ui() # Esto actualizará también los conteos y la lista de seleccionados
+                # No es necesario un page.update() aquí si actualizar_ui() ya lo hace al final
 
             numero_card = ft.Card(
                 content=ft.Container(
                     content=ft.Column(card_content, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     alignment=ft.alignment.center,
-                    width=120,
-                    height=80,
+                    width=120, # Asegura un ancho fijo para cada tarjeta
+                    height=80, # Asegura un alto fijo para cada tarjeta
                     padding=10,
                     bgcolor=card_color,
                     border_radius=ft.border_radius.all(10),
@@ -306,7 +329,7 @@ def main(page: ft.Page):
                 elevation=3 if is_clickable else 1
             )
             numeros_grid_view.controls.append(numero_card)
-        page.update()
+        page.update() # Actualiza el GridView después de añadir todos los controles
 
     def actualizar_lista_seleccionados_ui():
         lista_seleccionados_column.controls.clear()
@@ -323,6 +346,9 @@ def main(page: ft.Page):
                 def on_radio_change(e, persona_nombre=nombre):
                     nuevo_estado = int(e.control.value) 
                     update_pago_status_db(persona_nombre, nuevo_estado)
+                    # No es necesario actualizar toda la UI, solo la lista de seleccionados si hay cambios visuales
+                    # actualizar_lista_seleccionados_ui() # Descomentar si el cambio de pago necesita refrescar la lista entera
+                    page.update(e.control) # Solo actualiza el radio group para reflejar el cambio
 
                 radio_group_pago = ft.RadioGroup(
                     value=str(pagado_status),
@@ -355,19 +381,21 @@ def main(page: ft.Page):
                         width=600
                     )
                 )
-        page.update()
+        page.update() # Actualiza la lista de seleccionados
 
     # Función para actualizar solo los conteos
     def actualizar_conteo_numeros_ui():
         vendidos, disponibles = get_numeros_counts()
         vendidos_text.value = f"Vendidos: {vendidos}"
         disponibles_text.value = f"Disponibles: {disponibles}"
-        # CORRECCIÓN AQUÍ: Pasar los controles como argumentos separados
+        # CORRECCIÓN IMPORTANTE AQUÍ: Pasar los controles como argumentos separados
         page.update(vendidos_text, disponibles_text) 
 
 
     def actualizar_ui():
+        """Función maestra para actualizar toda la interfaz de usuario."""
         global current_valor_numero, current_descripcion_rifa
+        # Obtener la configuración más reciente
         current_valor_numero, current_descripcion_rifa = get_configuracion_db()
         valor_numero_input.value = str(int(current_valor_numero)) 
         descripcion_rifa_input.value = current_descripcion_rifa
@@ -376,7 +404,8 @@ def main(page: ft.Page):
         actualizar_numeros_ui()
         actualizar_lista_seleccionados_ui()
         actualizar_conteo_numeros_ui() # Llamar a la función para actualizar conteos
-        page.update() # Se deja aquí una actualización general por si otros elementos necesitan refrescarse
+        page.update() # Se deja una actualización general por si otros elementos en el Column principal necesitan refrescarse
+
 
     def close_reset_dialog(e):
         reset_alert_dialog.open = False
@@ -384,6 +413,8 @@ def main(page: ft.Page):
 
     def perform_reset_and_close_dialog(e):
         reset_rifa_db()
+        # Vuelve a llamar a la depuración después del reseteo
+        debug_list_all_numeros() 
         actualizar_ui()
         mensaje_error.value = "La rifa ha sido reseteada."
         nombre_input.value = ""
@@ -431,7 +462,7 @@ def main(page: ft.Page):
             return
 
         clear_numeros_by_person_db(nombre)
-        actualizar_ui()
+        actualizar_ui() # Actualiza toda la UI después de liberar
         liberar_mensaje_error.value = f"Números de '{nombre}' liberados correctamente."
         nombre_a_liberar_input.value = ""
         liberar_por_contacto_alert_dialog.open = False
@@ -665,7 +696,13 @@ def main(page: ft.Page):
         page.update()
     page.on_resize = on_page_resize
 
+    # Llamada inicial para cargar toda la UI
     actualizar_ui()
 
 if __name__ == "__main__":
+    # Opcional: Eliminar la base de datos al inicio para pruebas limpias
+    # if os.path.exists(DATABASE_NAME):
+    #     os.remove(DATABASE_NAME)
+    #     print(f"Archivo de base de datos '{DATABASE_NAME}' eliminado para un inicio limpio.")
+        
     ft.app(target=main)
