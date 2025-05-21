@@ -6,6 +6,8 @@ DATABASE_NAME = "rifa.db"
 def init_db():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
+    
+    # Tabla de números
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS numeros (
             numero TEXT PRIMARY KEY,
@@ -13,10 +15,32 @@ def init_db():
             nombre_persona TEXT DEFAULT ''
         )
     ''')
-    # Insertar números del 00 al 99 si la tabla está vacía
+    
+    # Tabla: Participantes para gestionar el estado de pago
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS participantes (
+            nombre_persona TEXT PRIMARY KEY,
+            pagado INTEGER DEFAULT 0 -- 0 para NO PAGADO, 1 para PAGADO
+        )
+    ''')
+
+    # NUEVA TABLA: Configuracion para el valor del número y descripción de la rifa
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS configuracion (
+            id INTEGER PRIMARY KEY DEFAULT 1, -- Solo una fila, con ID 1
+            valor_numero INTEGER DEFAULT 0, 
+            descripcion_rifa TEXT DEFAULT 'Descripción de la rifa aquí...'
+        )
+    ''')
+    
+    # Insertar una fila por defecto en configuracion si no existe
+    cursor.execute("INSERT OR IGNORE INTO configuracion (id, valor_numero, descripcion_rifa) VALUES (1, 100, '¡Participa en esta emocionante rifa y gana un premio increíble!')")
+    
+    # Insertar números del 00 al 99 si la tabla de números está vacía
     for i in range(100):
-        num_str = str(i).zfill(2) # Formatea a dos dígitos (00, 01, ..., 99)
+        num_str = str(i).zfill(2)
         cursor.execute("INSERT OR IGNORE INTO numeros (numero) VALUES (?)", (num_str,))
+    
     conn.commit()
     conn.close()
 
@@ -31,7 +55,22 @@ def get_numeros():
 def get_selected_numeros_by_person():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT nombre_persona, GROUP_CONCAT(numero) FROM numeros WHERE seleccionado = 1 AND nombre_persona != '' GROUP BY nombre_persona ORDER BY nombre_persona ASC")
+    cursor.execute("""
+        SELECT 
+            n.nombre_persona, 
+            GROUP_CONCAT(n.numero),
+            p.pagado
+        FROM 
+            numeros n
+        INNER JOIN 
+            participantes p ON n.nombre_persona = p.nombre_persona
+        WHERE 
+            n.seleccionado = 1 AND n.nombre_persona != '' 
+        GROUP BY 
+            n.nombre_persona, p.pagado
+        ORDER BY 
+            n.nombre_persona ASC
+    """)
     selected_data = cursor.fetchall()
     conn.close()
     return selected_data
@@ -39,7 +78,10 @@ def get_selected_numeros_by_person():
 def seleccionar_numero(numero, nombre_persona):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
+    
     cursor.execute("UPDATE numeros SET seleccionado = 1, nombre_persona = ? WHERE numero = ? AND seleccionado = 0", (nombre_persona, numero))
+    cursor.execute("INSERT OR IGNORE INTO participantes (nombre_persona, pagado) VALUES (?, 0)", (nombre_persona,))
+    
     conn.commit()
     conn.close()
 
@@ -47,6 +89,7 @@ def reset_rifa_db():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE numeros SET seleccionado = 0, nombre_persona = ''")
+    cursor.execute("DELETE FROM participantes")
     conn.commit()
     conn.close()
 
@@ -54,6 +97,7 @@ def clear_numeros_by_person_db(nombre_persona_a_limpiar):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE numeros SET seleccionado = 0, nombre_persona = '' WHERE nombre_persona = ?", (nombre_persona_a_limpiar,))
+    cursor.execute("DELETE FROM participantes WHERE nombre_persona = ?", (nombre_persona_a_limpiar,))
     conn.commit()
     conn.close()
 
@@ -65,6 +109,28 @@ def get_winner_by_number(winning_number):
     conn.close()
     return result[0] if result else None
 
+def update_pago_status_db(nombre_persona, pagado_status):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE participantes SET pagado = ? WHERE nombre_persona = ?", (pagado_status, nombre_persona))
+    conn.commit()
+    conn.close()
+
+def get_configuracion_db():
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor_numero, descripcion_rifa FROM configuracion WHERE id = 1")
+    config = cursor.fetchone()
+    conn.close()
+    return config if config else (0, 'Descripción de la rifa aquí...')
+
+def update_configuracion_db(valor_numero, descripcion_rifa):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE configuracion SET valor_numero = ?, descripcion_rifa = ? WHERE id = 1", (valor_numero, descripcion_rifa))
+    conn.commit()
+    conn.close()
+
 def main(page: ft.Page):
     page.title = "Aplicación de Rifa Flet"
     page.vertical_alignment = ft.MainAxisAlignment.START
@@ -73,6 +139,9 @@ def main(page: ft.Page):
     page.window_min_height = 600
 
     init_db()
+
+    global current_valor_numero, current_descripcion_rifa
+    current_valor_numero, current_descripcion_rifa = get_configuracion_db()
 
     nombre_input = ft.TextField(
         label="Tu Nombre (requerido para seleccionar)",
@@ -111,6 +180,61 @@ def main(page: ft.Page):
         expand=True
     )
 
+    # CAMBIO CRÍTICO AQUÍ: Asegurarse de que el valor inicial sea un string de un entero
+    valor_numero_input = ft.TextField(
+        label="Valor de cada número",
+        value=str(int(current_valor_numero)), # AHORA SÍ, aseguramos entero y luego string
+        prefix_text="¢",
+        input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*$"), 
+        width=200,
+        on_change=lambda e: actualizar_valor_input_temp(e),
+        on_submit=lambda e: guardar_configuracion(e, "valor_numero")
+    )
+
+    descripcion_rifa_input = ft.TextField(
+        label="Descripción de la Rifa",
+        value=current_descripcion_rifa,
+        multiline=True,
+        min_lines=3,
+        max_lines=5,
+        width=400,
+        hint_text="Describe el premio, las reglas, etc.",
+        on_change=lambda e: guardar_configuracion(e, "descripcion_rifa")
+    )
+    
+    display_descripcion_rifa = ft.Text(current_descripcion_rifa, size=14, italic=True, color=ft.Colors.BLUE_GREY_700, text_align=ft.TextAlign.CENTER)
+
+    def actualizar_valor_input_temp(e):
+        valor_numero_input.value = e.control.value
+        valor_numero_input.error_text = None 
+        page.update()
+
+
+    def guardar_configuracion(e, campo):
+        global current_valor_numero, current_descripcion_rifa
+        try:
+            if campo == "valor_numero":
+                # Si el campo está vacío, lo tratamos como 0
+                if not valor_numero_input.value.strip():
+                    val = 0
+                else:
+                    val = int(valor_numero_input.value)
+                
+                current_valor_numero = val
+                valor_numero_input.value = str(val) # Asegurarse de que el TextField muestre el valor entero final
+                valor_numero_input.error_text = None
+                
+            elif campo == "descripcion_rifa":
+                current_descripcion_rifa = descripcion_rifa_input.value
+            
+            update_configuracion_db(current_valor_numero, current_descripcion_rifa)
+            display_descripcion_rifa.value = current_descripcion_rifa
+            actualizar_numeros_ui() 
+            page.update()
+        except ValueError:
+            valor_numero_input.error_text = "Valor inválido. Debe ser un número entero."
+            page.update()
+
     def actualizar_numeros_ui():
         numeros_grid_view.controls.clear()
         todos_los_numeros = get_numeros()
@@ -120,6 +244,7 @@ def main(page: ft.Page):
         for num_str, seleccionado, nombre_persona in todos_los_numeros:
             card_content = [
                 ft.Text(f"Número: {num_str}", size=18, weight=ft.FontWeight.BOLD),
+                ft.Text(f"¢{current_valor_numero}", size=12, color=ft.Colors.INDIGO_700, weight=ft.FontWeight.W_600),
             ]
             
             card_color = ft.Colors.BLUE_GREY_100
@@ -171,34 +296,61 @@ def main(page: ft.Page):
 
     def actualizar_lista_seleccionados_ui():
         lista_seleccionados_column.controls.clear()
-        selected_data = get_selected_numeros_by_person()
+        selected_data = get_selected_numeros_by_person() 
 
         if not selected_data:
             lista_seleccionados_column.controls.append(
                 ft.Text("Aún no hay números seleccionados.", italic=True, color=ft.Colors.GREY_500)
             )
         else:
-            for nombre, numeros_concatenados in selected_data:
+            for nombre, numeros_concatenados, pagado_status in selected_data:
                 numeros_formateados = numeros_concatenados.replace(",", ", ")
+
+                def on_radio_change(e, persona_nombre=nombre):
+                    nuevo_estado = int(e.control.value) 
+                    update_pago_status_db(persona_nombre, nuevo_estado)
+
+                radio_group_pago = ft.RadioGroup(
+                    value=str(pagado_status),
+                    on_change=on_radio_change,
+                    content=ft.Row([
+                        ft.Radio(value="1", label="Pagó"),
+                        ft.Radio(value="0", label="No pagó"),
+                    ], spacing=10)
+                )
+
                 lista_seleccionados_column.controls.append(
                     ft.Card(
                         content=ft.Container(
-                            content=ft.Row([
-                                ft.Text(f"{nombre}:", size=14, weight=ft.FontWeight.BOLD, expand=True),
-                                ft.Text(numeros_formateados, size=14, color=ft.Colors.BLUE_GREY_900)
-                            ], vertical_alignment=ft.CrossAxisAlignment.START),
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Text(f"{nombre}:", size=14, weight=ft.FontWeight.BOLD, expand=True),
+                                    ft.Text(numeros_formateados, size=14, color=ft.Colors.BLUE_GREY_900)
+                                ], vertical_alignment=ft.CrossAxisAlignment.START),
+                                ft.Row([
+                                    ft.Text("Estado de Pago:", size=12, color=ft.Colors.GREY_700),
+                                    radio_group_pago
+                                ], alignment=ft.MainAxisAlignment.END, spacing=5)
+                            ]),
                             padding=10,
                             bgcolor=ft.Colors.BLUE_GREY_50,
                             border_radius=ft.border_radius.all(8)
                         ),
                         elevation=1,
-                        margin=ft.margin.only(bottom=5),
+                        margin=ft.margin.only(bottom=10),
                         width=600
                     )
                 )
         page.update()
 
     def actualizar_ui():
+        global current_valor_numero, current_descripcion_rifa
+        current_valor_numero, current_descripcion_rifa = get_configuracion_db()
+        # CAMBIO CRÍTICO AQUÍ: Asegurarse de que el valor al actualizar también sea un string de un entero
+        valor_numero_input.value = str(int(current_valor_numero)) 
+        descripcion_rifa_input.value = current_descripcion_rifa
+        display_descripcion_rifa.value = current_descripcion_rifa
+        
         actualizar_numeros_ui()
         actualizar_lista_seleccionados_ui()
         page.update()
@@ -297,12 +449,11 @@ def main(page: ft.Page):
         )
     )
 
-    # --- NUEVA SECCIÓN: Anunciar Ganador ---
-    resultado_ganador_text = ft.Text("", size=18, weight=ft.FontWeight.BOLD) # Movido arriba
+    resultado_ganador_text = ft.Text("", size=18, weight=ft.FontWeight.BOLD)
     
-    def limpiar_resultado_ganador_mensaje(e): # Nueva función para limpiar
+    def limpiar_resultado_ganador_mensaje(e):
         resultado_ganador_text.value = ""
-        resultado_ganador_text.color = ft.Colors.BLACK # Restablece el color
+        resultado_ganador_text.color = ft.Colors.BLACK
         page.update()
 
     numero_ganador_input = ft.TextField(
@@ -310,7 +461,7 @@ def main(page: ft.Page):
         width=200,
         hint_text="Ej: 42",
         input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]{0,2}$"),
-        on_change=limpiar_resultado_ganador_mensaje # <--- ¡CORRECCIÓN APLICADA AQUÍ!
+        on_change=limpiar_resultado_ganador_mensaje
     )
     
     def anunciar_ganador(e):
@@ -348,8 +499,38 @@ def main(page: ft.Page):
         ft.Column(
             [
                 ft.Text("¡Bienvenido a la Aplicación de Rifa!", size=28, weight=ft.FontWeight.BOLD),
-                ft.Text("Ingresa tu nombre y selecciona un número para participar.", size=16),
                 ft.Divider(),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text("Configuración de la Rifa", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Row(
+                                [
+                                    valor_numero_input,
+                                    ft.Container(width=20),
+                                    ft.Column([
+                                        ft.Text("Descripción de la Rifa Actual:", size=12, color=ft.Colors.GREY_700),
+                                        display_descripcion_rifa,
+                                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=15
+                            ),
+                            descripcion_rifa_input,
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                        alignment=ft.CrossAxisAlignment.CENTER,
+                        width=ft.WEB_BROWSER,
+                    ),
+                    padding=ft.padding.only(top=10, bottom=10, left=15, right=15),
+                    margin=ft.margin.only(top=10, bottom=20),
+                    bgcolor=ft.Colors.BLUE_GREY_50,
+                    border_radius=ft.border_radius.all(10),
+                    border=ft.border.all(1, ft.Colors.BLUE_GREY_200)
+                ),
+                ft.Divider(),
+                ft.Text("Ingresa tu nombre y selecciona un número para participar.", size=16),
                 ft.Row(
                     [nombre_input],
                     alignment=ft.MainAxisAlignment.CENTER,
