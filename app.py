@@ -75,6 +75,17 @@ def get_selected_numeros_by_person():
     conn.close()
     return selected_data
 
+# Obtener conteo de números vendidos/disponibles
+def get_numeros_counts():
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM numeros WHERE seleccionado = 1")
+    vendidos = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM numeros WHERE seleccionado = 0")
+    disponibles = cursor.fetchone()[0]
+    conn.close()
+    return vendidos, disponibles
+
 def seleccionar_numero(numero, nombre_persona):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
@@ -161,7 +172,8 @@ def main(page: ft.Page):
         label="Nombre a liberar (exacto)",
         width=300,
         hint_text="Ej: Juan Pérez",
-        on_change=limpiar_liberar_mensaje
+        on_change=limpiar_liberar_mensaje,
+        expand=True
     )
     
     numeros_grid_view = ft.GridView(
@@ -180,10 +192,9 @@ def main(page: ft.Page):
         expand=True
     )
 
-    # CAMBIO CRÍTICO AQUÍ: Asegurarse de que el valor inicial sea un string de un entero
     valor_numero_input = ft.TextField(
         label="Valor de cada número",
-        value=str(int(current_valor_numero)), # AHORA SÍ, aseguramos entero y luego string
+        value=str(int(current_valor_numero)),
         prefix_text="¢",
         input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*$"), 
         width=200,
@@ -204,6 +215,10 @@ def main(page: ft.Page):
     
     display_descripcion_rifa = ft.Text(current_descripcion_rifa, size=14, italic=True, color=ft.Colors.BLUE_GREY_700, text_align=ft.TextAlign.CENTER)
 
+    # Controles para mostrar los conteos
+    vendidos_text = ft.Text("Vendidos: 0", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700)
+    disponibles_text = ft.Text("Disponibles: 100", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700)
+    
     def actualizar_valor_input_temp(e):
         valor_numero_input.value = e.control.value
         valor_numero_input.error_text = None 
@@ -214,14 +229,13 @@ def main(page: ft.Page):
         global current_valor_numero, current_descripcion_rifa
         try:
             if campo == "valor_numero":
-                # Si el campo está vacío, lo tratamos como 0
                 if not valor_numero_input.value.strip():
                     val = 0
                 else:
                     val = int(valor_numero_input.value)
                 
                 current_valor_numero = val
-                valor_numero_input.value = str(val) # Asegurarse de que el TextField muestre el valor entero final
+                valor_numero_input.value = str(val)
                 valor_numero_input.error_text = None
                 
             elif campo == "descripcion_rifa":
@@ -273,7 +287,7 @@ def main(page: ft.Page):
 
                 seleccionar_numero(numero, current_nombre)
                 mensaje_error.value = ""
-                actualizar_ui()
+                actualizar_ui() # Esto actualizará también los conteos
                 page.update()
 
             numero_card = ft.Card(
@@ -343,17 +357,26 @@ def main(page: ft.Page):
                 )
         page.update()
 
+    # Función para actualizar solo los conteos
+    def actualizar_conteo_numeros_ui():
+        vendidos, disponibles = get_numeros_counts()
+        vendidos_text.value = f"Vendidos: {vendidos}"
+        disponibles_text.value = f"Disponibles: {disponibles}"
+        # CORRECCIÓN AQUÍ: Pasar los controles como argumentos separados
+        page.update(vendidos_text, disponibles_text) 
+
+
     def actualizar_ui():
         global current_valor_numero, current_descripcion_rifa
         current_valor_numero, current_descripcion_rifa = get_configuracion_db()
-        # CAMBIO CRÍTICO AQUÍ: Asegurarse de que el valor al actualizar también sea un string de un entero
         valor_numero_input.value = str(int(current_valor_numero)) 
         descripcion_rifa_input.value = current_descripcion_rifa
         display_descripcion_rifa.value = current_descripcion_rifa
         
         actualizar_numeros_ui()
         actualizar_lista_seleccionados_ui()
-        page.update()
+        actualizar_conteo_numeros_ui() # Llamar a la función para actualizar conteos
+        page.update() # Se deja aquí una actualización general por si otros elementos necesitan refrescarse
 
     def close_reset_dialog(e):
         reset_alert_dialog.open = False
@@ -446,7 +469,8 @@ def main(page: ft.Page):
             bgcolor=ft.Colors.BLUE_GREY_600,
             color=ft.Colors.WHITE,
             icon_color=ft.Colors.WHITE,
-        )
+        ),
+        expand=True
     )
 
     resultado_ganador_text = ft.Text("", size=18, weight=ft.FontWeight.BOLD)
@@ -461,7 +485,8 @@ def main(page: ft.Page):
         width=200,
         hint_text="Ej: 42",
         input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]{0,2}$"),
-        on_change=limpiar_resultado_ganador_mensaje
+        on_change=limpiar_resultado_ganador_mensaje,
+        expand=True
     )
     
     def anunciar_ganador(e):
@@ -492,7 +517,8 @@ def main(page: ft.Page):
             bgcolor=ft.Colors.PURPLE_600,
             color=ft.Colors.WHITE,
             icon_color=ft.Colors.YELLOW_ACCENT_100,
-        )
+        ),
+        expand=True
     )
 
     page.add(
@@ -551,7 +577,17 @@ def main(page: ft.Page):
                         [
                             ft.Text("Números Seleccionados", size=20, weight=ft.FontWeight.BOLD),
                             ft.Divider(),
-                            lista_seleccionados_column
+                            lista_seleccionados_column,
+                            # AÑADIDO: Contadores de números vendidos y disponibles
+                            ft.Divider(), # Separador visual
+                            ft.Row(
+                                [
+                                    vendidos_text,
+                                    disponibles_text
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                                spacing=20
+                            )
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=10
@@ -567,10 +603,10 @@ def main(page: ft.Page):
                         [
                             ft.Text("Administración de Números", size=20, weight=ft.FontWeight.BOLD),
                             ft.Text("Libera los números de un participante específico:", size=14),
-                            ft.Row(
+                            ft.ResponsiveRow(
                                 [
-                                    nombre_a_liberar_input,
-                                    liberar_por_contacto_button,
+                                    ft.Column([nombre_a_liberar_input], col={"xs": 12, "md": 6}),
+                                    ft.Column([liberar_por_contacto_button], col={"xs": 12, "md": 6}),
                                 ],
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=15
@@ -593,10 +629,10 @@ def main(page: ft.Page):
                         [
                             ft.Text("Anunciar Ganador", size=20, weight=ft.FontWeight.BOLD),
                             ft.Text("Ingresa el número ganador para ver quién lo tiene:", size=14),
-                            ft.Row(
+                            ft.ResponsiveRow(
                                 [
-                                    numero_ganador_input,
-                                    anunciar_ganador_button,
+                                    ft.Column([numero_ganador_input], col={"xs": 12, "md": 6}),
+                                    ft.Column([anunciar_ganador_button], col={"xs": 12, "md": 6}),
                                 ],
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=15
