@@ -1,6 +1,6 @@
 import flet as ft
 import sqlite3
-import os # Importar para poder borrar el archivo de la base de datos
+import os
 
 DATABASE_NAME = "rifa.db"
 
@@ -38,7 +38,6 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO configuracion (id, valor_numero, descripcion_rifa) VALUES (1, 100, '¡Participa en esta emocionante rifa y gana un premio increíble!')")
     
     # Insertar números del 00 al 99 si la tabla de números está vacía
-    # Esto asegura que los números se inserten solo una vez si no existen
     for i in range(100):
         num_str = str(i).zfill(2)
         cursor.execute("INSERT OR IGNORE INTO numeros (numero) VALUES (?)", (num_str,))
@@ -88,15 +87,40 @@ def get_numeros_counts():
     conn.close()
     return vendidos, disponibles
 
-def seleccionar_numero(numero, nombre_persona):
+# MODIFICADO: Ahora 'seleccionar_o_deseleccionar_numero' maneja ambos estados
+def seleccionar_o_deseleccionar_numero(numero, nombre_persona_actual, estado_actual_numero, nombre_seleccionado_por):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
-    
-    cursor.execute("UPDATE numeros SET seleccionado = 1, nombre_persona = ? WHERE numero = ? AND seleccionado = 0", (nombre_persona, numero))
-    cursor.execute("INSERT OR IGNORE INTO participantes (nombre_persona, pagado) VALUES (?, 0)", (nombre_persona,))
-    
-    conn.commit()
+
+    if estado_actual_numero == 0:  # Número disponible, intentando seleccionar
+        if nombre_persona_actual: # Solo permite seleccionar si hay un nombre
+            cursor.execute("UPDATE numeros SET seleccionado = 1, nombre_persona = ? WHERE numero = ?", (nombre_persona_actual, numero))
+            cursor.execute("INSERT OR IGNORE INTO participantes (nombre_persona, pagado) VALUES (?, 0)", (nombre_persona_actual,))
+            conn.commit()
+            conn.close()
+            return True # Éxito en la selección
+        else:
+            conn.close()
+            return False # Fallo, no hay nombre
+    elif estado_actual_numero == 1:  # Número seleccionado, intentando deseleccionar
+        if nombre_persona_actual == nombre_seleccionado_por: # Solo permite deseleccionar si es el mismo usuario
+            cursor.execute("UPDATE numeros SET seleccionado = 0, nombre_persona = '' WHERE numero = ?", (numero,))
+            
+            # Opcional: Si el participante ya no tiene números, se podría borrar de la tabla participantes
+            cursor.execute("SELECT COUNT(*) FROM numeros WHERE nombre_persona = ?", (nombre_persona_actual,))
+            remaining_numbers = cursor.fetchone()[0]
+            if remaining_numbers == 0:
+                cursor.execute("DELETE FROM participantes WHERE nombre_persona = ?", (nombre_persona_actual,))
+            
+            conn.commit()
+            conn.close()
+            return True # Éxito en la deselección
+        else:
+            conn.close()
+            return False # Fallo, no es el usuario dueño del número
     conn.close()
+    return False # En caso de estado inesperado
+
 
 def reset_rifa_db():
     conn = sqlite3.connect(DATABASE_NAME)
@@ -169,7 +193,6 @@ def main(page: ft.Page):
     page.window_min_height = 600
 
     init_db()
-    # Llama a la función de depuración al inicio para verificar la DB
     debug_list_all_numeros() 
 
     global current_valor_numero, current_descripcion_rifa
@@ -198,14 +221,12 @@ def main(page: ft.Page):
     )
     
     numeros_grid_view = ft.GridView(
-        runs_count=5, # Intenta 5 columnas
-        max_extent=150, # Ancho máximo de cada "celda"
-        child_aspect_ratio=1.5, # Relación de aspecto (ancho/alto) de las celdas
-        spacing=10, # Espacio entre celdas en el eje principal (vertical si scroll es vertical)
-        run_spacing=10, # Espacio entre celdas en el eje cruzado (horizontal si scroll es vertical)
-        expand=True, # Permite que el GridView se expanda para ocupar el espacio disponible
-        # cache_extent=1000, # Aumentar si se ven problemas de renderizado al hacer scroll rápido
-        # auto_scroll=False # Generalmente False para GridView si se espera scroll manual
+        runs_count=5, 
+        max_extent=150, 
+        child_aspect_ratio=1.5, 
+        spacing=10, 
+        run_spacing=10, 
+        expand=True,
     )
 
     lista_seleccionados_column = ft.Column(
@@ -238,7 +259,6 @@ def main(page: ft.Page):
     
     display_descripcion_rifa = ft.Text(current_descripcion_rifa, size=14, italic=True, color=ft.Colors.BLUE_GREY_700, text_align=ft.TextAlign.CENTER)
 
-    # Controles para mostrar los conteos
     vendidos_text = ft.Text("Vendidos: 0", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700)
     disponibles_text = ft.Text("Disponibles: 100", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700)
     
@@ -273,63 +293,83 @@ def main(page: ft.Page):
             page.update()
 
     def actualizar_numeros_ui():
-        numeros_grid_view.controls.clear() # Limpia los controles antes de añadir nuevos
+        numeros_grid_view.controls.clear() 
         todos_los_numeros = get_numeros()
         
         current_nombre = nombre_input.value.strip()
 
-        for num_str, seleccionado, nombre_persona in todos_los_numeros:
+        for num_str, seleccionado, nombre_persona_del_db in todos_los_numeros:
             card_content = [
                 ft.Text(f"Número: {num_str}", size=18, weight=ft.FontWeight.BOLD),
                 ft.Text(f"¢{current_valor_numero}", size=12, color=ft.Colors.INDIGO_700, weight=ft.FontWeight.W_600),
             ]
             
             card_color = ft.Colors.BLUE_GREY_100
-            is_clickable = True
+            is_clickable = True # Por defecto es clickable
 
-            if seleccionado:
-                card_content.append(ft.Text(f"Por: {nombre_persona}", size=12, color=ft.Colors.GREEN_700))
+            tooltip_text = ""
+
+            if seleccionado: # Número ya seleccionado
+                card_content.append(ft.Text(f"Por: {nombre_persona_del_db}", size=12, color=ft.Colors.GREEN_700))
                 card_color = ft.Colors.GREY_300
-                is_clickable = False
-            else:
+                tooltip_text = f"Seleccionado por {nombre_persona_del_db}"
+
+                if current_nombre == nombre_persona_del_db: # Seleccionado por el usuario actual
+                    card_color = ft.Colors.AMBER_100 # Color diferente para sus números seleccionados
+                    tooltip_text = f"Clic para deseleccionar {num_str}"
+                else: # Seleccionado por otra persona
+                    is_clickable = False
+                    card_color = ft.Colors.RED_100 # Color diferente para números de otros
+                    
+            else: # Número disponible
                 card_content.append(ft.Text("Disponible", size=12, color=ft.Colors.GREY_500))
-                if not current_nombre:
+                if not current_nombre: # Disponible pero sin nombre ingresado
                     is_clickable = False
                     card_color = ft.Colors.BLUE_GREY_50
                     card_content.append(ft.Text("(Ingresa tu nombre)", size=10, color=ft.Colors.AMBER_700))
+                    tooltip_text = "Ingresa tu nombre para seleccionar"
+                else: # Disponible y con nombre ingresado
+                    tooltip_text = f"Clic para seleccionar {num_str}"
 
-            def on_numero_click(e, numero=num_str):
-                if not is_clickable:
-                    if not current_nombre:
-                        mensaje_error.value = "Por favor, ingresa tu nombre para seleccionar un número."
-                        page.update()
-                    elif seleccionado:
-                        mensaje_error.value = f"El número {numero} ya fue seleccionado por {nombre_persona}."
-                        page.update()
+
+            def on_numero_click(e, numero=num_str, estado_sel=seleccionado, persona_db=nombre_persona_del_db):
+                nombre_actual_en_input = nombre_input.value.strip()
+                
+                if not nombre_actual_en_input and estado_sel == 0:
+                    mensaje_error.value = "Por favor, ingresa tu nombre para seleccionar un número."
+                    page.update()
                     return
+                
+                # Intentar seleccionar o deseleccionar
+                exito = seleccionar_o_deseleccionar_numero(numero, nombre_actual_en_input, estado_sel, persona_db)
 
-                seleccionar_numero(numero, current_nombre)
-                mensaje_error.value = ""
-                actualizar_ui() # Esto actualizará también los conteos y la lista de seleccionados
-                # No es necesario un page.update() aquí si actualizar_ui() ya lo hace al final
+                if exito:
+                    mensaje_error.value = "" # Limpia cualquier mensaje de error anterior
+                    actualizar_ui() # Refresca toda la UI para reflejar el cambio
+                else:
+                    if estado_sel == 0: # Falló la selección (nombre no ingresado)
+                        mensaje_error.value = "No se pudo seleccionar. Asegúrate de ingresar tu nombre."
+                    elif estado_sel == 1: # Falló la deselección (no es el dueño)
+                        mensaje_error.value = f"El número {numero} fue seleccionado por {persona_db}. Solo {persona_db} puede deseleccionarlo."
+                    page.update()
 
             numero_card = ft.Card(
                 content=ft.Container(
                     content=ft.Column(card_content, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     alignment=ft.alignment.center,
-                    width=120, # Asegura un ancho fijo para cada tarjeta
-                    height=80, # Asegura un alto fijo para cada tarjeta
+                    width=120,
+                    height=80,
                     padding=10,
                     bgcolor=card_color,
                     border_radius=ft.border_radius.all(10),
-                    on_click=on_numero_click if is_clickable else None,
+                    on_click=on_numero_click if is_clickable else None, # Solo clickable si is_clickable es True
                     ink=is_clickable,
-                    tooltip=f"Selecciona el {num_str}" if is_clickable else (f"Seleccionado por {nombre_persona}" if seleccionado else "Ingresa tu nombre para seleccionar")
+                    tooltip=tooltip_text
                 ),
                 elevation=3 if is_clickable else 1
             )
             numeros_grid_view.controls.append(numero_card)
-        page.update() # Actualiza el GridView después de añadir todos los controles
+        page.update()
 
     def actualizar_lista_seleccionados_ui():
         lista_seleccionados_column.controls.clear()
@@ -346,9 +386,7 @@ def main(page: ft.Page):
                 def on_radio_change(e, persona_nombre=nombre):
                     nuevo_estado = int(e.control.value) 
                     update_pago_status_db(persona_nombre, nuevo_estado)
-                    # No es necesario actualizar toda la UI, solo la lista de seleccionados si hay cambios visuales
-                    # actualizar_lista_seleccionados_ui() # Descomentar si el cambio de pago necesita refrescar la lista entera
-                    page.update(e.control) # Solo actualiza el radio group para reflejar el cambio
+                    page.update(e.control) 
 
                 radio_group_pago = ft.RadioGroup(
                     value=str(pagado_status),
@@ -381,21 +419,17 @@ def main(page: ft.Page):
                         width=600
                     )
                 )
-        page.update() # Actualiza la lista de seleccionados
+        page.update()
 
-    # Función para actualizar solo los conteos
     def actualizar_conteo_numeros_ui():
         vendidos, disponibles = get_numeros_counts()
         vendidos_text.value = f"Vendidos: {vendidos}"
         disponibles_text.value = f"Disponibles: {disponibles}"
-        # CORRECCIÓN IMPORTANTE AQUÍ: Pasar los controles como argumentos separados
         page.update(vendidos_text, disponibles_text) 
 
 
     def actualizar_ui():
-        """Función maestra para actualizar toda la interfaz de usuario."""
         global current_valor_numero, current_descripcion_rifa
-        # Obtener la configuración más reciente
         current_valor_numero, current_descripcion_rifa = get_configuracion_db()
         valor_numero_input.value = str(int(current_valor_numero)) 
         descripcion_rifa_input.value = current_descripcion_rifa
@@ -403,8 +437,8 @@ def main(page: ft.Page):
         
         actualizar_numeros_ui()
         actualizar_lista_seleccionados_ui()
-        actualizar_conteo_numeros_ui() # Llamar a la función para actualizar conteos
-        page.update() # Se deja una actualización general por si otros elementos en el Column principal necesitan refrescarse
+        actualizar_conteo_numeros_ui()
+        page.update()
 
 
     def close_reset_dialog(e):
@@ -413,7 +447,6 @@ def main(page: ft.Page):
 
     def perform_reset_and_close_dialog(e):
         reset_rifa_db()
-        # Vuelve a llamar a la depuración después del reseteo
         debug_list_all_numeros() 
         actualizar_ui()
         mensaje_error.value = "La rifa ha sido reseteada."
@@ -462,7 +495,7 @@ def main(page: ft.Page):
             return
 
         clear_numeros_by_person_db(nombre)
-        actualizar_ui() # Actualiza toda la UI después de liberar
+        actualizar_ui() 
         liberar_mensaje_error.value = f"Números de '{nombre}' liberados correctamente."
         nombre_a_liberar_input.value = ""
         liberar_por_contacto_alert_dialog.open = False
@@ -609,8 +642,7 @@ def main(page: ft.Page):
                             ft.Text("Números Seleccionados", size=20, weight=ft.FontWeight.BOLD),
                             ft.Divider(),
                             lista_seleccionados_column,
-                            # AÑADIDO: Contadores de números vendidos y disponibles
-                            ft.Divider(), # Separador visual
+                            ft.Divider(), 
                             ft.Row(
                                 [
                                     vendidos_text,
@@ -696,11 +728,12 @@ def main(page: ft.Page):
         page.update()
     page.on_resize = on_page_resize
 
-    # Llamada inicial para cargar toda la UI
     actualizar_ui()
 
 if __name__ == "__main__":
     # Opcional: Eliminar la base de datos al inicio para pruebas limpias
+    # Descomentar si quieres que la base de datos se borre cada vez que inicies la app
+    # Comentar de nuevo para mantener los datos en producción
     # if os.path.exists(DATABASE_NAME):
     #     os.remove(DATABASE_NAME)
     #     print(f"Archivo de base de datos '{DATABASE_NAME}' eliminado para un inicio limpio.")
