@@ -38,7 +38,7 @@ def get_selected_numeros_by_person():
 
 def seleccionar_numero(numero, nombre_persona):
     conn = sqlite3.connect(DATABASE_NAME)
-    cursor = conn.cursor() # <--- ¡CORRECCIÓN APLICADA AQUÍ!
+    cursor = conn.cursor()
     cursor.execute("UPDATE numeros SET seleccionado = 1, nombre_persona = ? WHERE numero = ? AND seleccionado = 0", (nombre_persona, numero))
     conn.commit()
     conn.close()
@@ -47,6 +47,13 @@ def reset_rifa_db():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE numeros SET seleccionado = 0, nombre_persona = ''")
+    conn.commit()
+    conn.close()
+
+def clear_numeros_by_person_db(nombre_persona_a_limpiar):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE numeros SET seleccionado = 0, nombre_persona = '' WHERE nombre_persona = ?", (nombre_persona_a_limpiar,))
     conn.commit()
     conn.close()
 
@@ -67,6 +74,19 @@ def main(page: ft.Page):
     )
     mensaje_error = ft.Text("", color=ft.Colors.RED_500)
 
+    liberar_mensaje_error = ft.Text("", color=ft.Colors.ORANGE_500)
+    
+    def limpiar_liberar_mensaje(e):
+        liberar_mensaje_error.value = ""
+        page.update()
+
+    nombre_a_liberar_input = ft.TextField(
+        label="Nombre a liberar (exacto)",
+        width=300,
+        hint_text="Ej: Juan Pérez",
+        on_change=limpiar_liberar_mensaje
+    )
+    
     numeros_grid_view = ft.GridView(
         runs_count=5,
         max_extent=150,
@@ -175,9 +195,7 @@ def main(page: ft.Page):
         actualizar_lista_seleccionados_ui()
         page.update()
 
-    # --- Diálogo de Confirmación para Resetear Rifa (Usando page.overlay) ---
-
-    def close_dialog(e):
+    def close_reset_dialog(e):
         reset_alert_dialog.open = False
         page.update()
 
@@ -191,29 +209,81 @@ def main(page: ft.Page):
 
     reset_alert_dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text("Confirmar Reseteo"),
-        content=ft.Text("¿Estás seguro de que deseas resetear la rifa? Esto borrará todas las selecciones."),
+        title=ft.Text("Confirmar Reseteo Total"),
+        content=ft.Text("¿Estás seguro de que deseas resetear la rifa? Esto borrará TODAS las selecciones de TODOS los participantes."),
         actions=[
-            ft.TextButton("Cancelar", on_click=close_dialog),
-            ft.FilledButton("Sí, Resetear", on_click=perform_reset_and_close_dialog, style=ft.ButtonStyle(bgcolor=ft.Colors.RED_500)),
+            ft.TextButton("Cancelar", on_click=close_reset_dialog),
+            ft.FilledButton("Sí, Resetear Todo", on_click=perform_reset_and_close_dialog, style=ft.ButtonStyle(bgcolor=ft.Colors.RED_500)),
         ],
         actions_alignment=ft.MainAxisAlignment.END,
-        on_dismiss=lambda e: print("Diálogo de confirmación cerrado por dismiss."),
+        on_dismiss=lambda e: print("Diálogo de confirmación de reset total cerrado por dismiss."),
     )
-
     page.overlay.append(reset_alert_dialog)
     
     def on_reset_button_click(e):
-        print("Botón de reset clickeado! Intentando abrir diálogo...")
+        print("Botón de reset total clickeado! Intentando abrir diálogo...")
         reset_alert_dialog.open = True
         page.update()
 
     reset_button_final = ft.ElevatedButton(
-        "Resetear Rifa",
+        "Resetear Rifa Completa",
         on_click=on_reset_button_click,
         icon=ft.Icons.WARNING_ROUNDED,
         style=ft.ButtonStyle(
             bgcolor=ft.Colors.RED_700,
+            color=ft.Colors.WHITE,
+            icon_color=ft.Colors.WHITE,
+        )
+    )
+
+    def close_liberar_dialog(e):
+        liberar_por_contacto_alert_dialog.open = False
+        page.update()
+
+    def perform_liberar_by_contact_and_close_dialog(e):
+        nombre = nombre_a_liberar_input.value.strip()
+        if not nombre:
+            liberar_mensaje_error.value = "Error interno: Nombre no proporcionado."
+            page.update()
+            return
+
+        clear_numeros_by_person_db(nombre)
+        actualizar_ui()
+        liberar_mensaje_error.value = f"Números de '{nombre}' liberados correctamente."
+        nombre_a_liberar_input.value = ""
+        liberar_por_contacto_alert_dialog.open = False
+        page.update()
+
+    liberar_por_contacto_alert_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Confirmar Liberar Números"),
+        content=ft.Text(""),
+        actions=[
+            ft.TextButton("Cancelar", on_click=close_liberar_dialog),
+            ft.FilledButton("Sí, Liberar", on_click=perform_liberar_by_contact_and_close_dialog, style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_500)),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+        on_dismiss=lambda e: print("Diálogo de confirmación de liberar por contacto cerrado."),
+    )
+    page.overlay.append(liberar_por_contacto_alert_dialog)
+
+    def on_liberar_by_contact_button_click(e):
+        nombre = nombre_a_liberar_input.value.strip()
+        if not nombre:
+            liberar_mensaje_error.value = "Ingresa el nombre del participante para liberar sus números."
+            page.update()
+            return
+        
+        liberar_por_contacto_alert_dialog.content = ft.Text(f"¿Estás seguro de que deseas liberar los números de '{nombre}'? Esto eliminará sus selecciones.")
+        liberar_por_contacto_alert_dialog.open = True
+        page.update()
+
+    liberar_por_contacto_button = ft.ElevatedButton(
+        "Liberar números de Contacto",
+        on_click=on_liberar_by_contact_button_click,
+        icon=ft.Icons.CLEANING_SERVICES,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.BLUE_GREY_600,
             color=ft.Colors.WHITE,
             icon_color=ft.Colors.WHITE,
         )
@@ -255,6 +325,33 @@ def main(page: ft.Page):
                     width=ft.WEB_BROWSER,
                     margin=ft.margin.only(top=20)
                 ),
+                ft.Divider(),
+                # --- SECCIÓN DE LIBERAR POR CONTACTO ENVUELTA EN CONTAINER ---
+                ft.Container( # <--- ¡NUEVO CONTAINER AQUÍ!
+                    content=ft.Column(
+                        [
+                            ft.Text("Administración de Números", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("Libera los números de un participante específico:", size=14),
+                            ft.Row(
+                                [
+                                    nombre_a_liberar_input,
+                                    liberar_por_contacto_button,
+                                ],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=15
+                            ),
+                            liberar_mensaje_error,
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                        alignment=ft.CrossAxisAlignment.CENTER,
+                        width=ft.WEB_BROWSER, # El width se aplica al Container
+                    ),
+                    padding=ft.padding.only(top=10, bottom=10, left=15, right=15), # <--- AHORA EL PADDING ESTÁ AQUÍ
+                    margin=ft.margin.only(top=20),
+                    bgcolor=ft.Colors.BLUE_GREY_100,
+                    border_radius=ft.border_radius.all(10)
+                ), # <--- FIN DEL NUEVO CONTAINER
                 ft.Divider(),
                 reset_button_final,
                 ft.Container(height=20)
