@@ -203,30 +203,33 @@ def main(page: ft.Page):
     
     is_admin_logged_in = False
 
+    # --- CAMBIO APLICADO AQUÍ: ELIMINADO 'width' fijo, confiando en 'expand=True'
     admin_email_input = ft.TextField(
         label="Correo del Administrador (Opcional)",
         hint_text="Ingresa tu correo o la contraseña",
-        width=300,
         can_reveal_password=False,
         expand=True 
     )
+    # --- CAMBIO APLICADO AQUÍ: ELIMINADO 'width' fijo, confiando en 'expand=True'
     admin_password_input = ft.TextField(
         label="Contraseña (Opcional)",
         hint_text="Ingresa la contraseña para acceder",
         password=True,
         can_reveal_password=True,
-        width=300,
         expand=True 
     )
     admin_login_message = ft.Text("", color=ft.Colors.RED_500)
 
     # --- CONTROLES DE CONFIGURACIÓN ---
+    # Los controles de configuración no están en ResponsiveRow directamente,
+    # pero si necesitas que el valor_numero_input se centre,
+    # el Row que lo contiene ya tiene alignment=ft.MainAxisAlignment.CENTER.
     valor_numero_input = ft.TextField(
         label="Valor de cada número",
         value=str(int(current_valor_numero)),
         prefix_text="¢",
         input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*$"), 
-        width=200,
+        width=200, # Mantener un width aquí si no está en ResponsiveRow y quieres un tamaño específico
         on_submit=lambda e: guardar_configuracion(e, "valor_numero"),
         on_blur=lambda e: guardar_configuracion(e, "valor_numero"),
         visible=False
@@ -245,7 +248,7 @@ def main(page: ft.Page):
         multiline=True,
         min_lines=3,
         max_lines=5,
-        width=400,
+        width=400, # Mantener un width aquí si no está en ResponsiveRow y quieres un tamaño específico
         hint_text="Describe el premio, las reglas, etc.",
         on_change=lambda e: guardar_configuracion(e, "descripcion_rifa"),
         visible=False
@@ -304,7 +307,6 @@ def main(page: ft.Page):
             admin_login_button.visible = False
             admin_logout_button.visible = True
             
-            # Limpiar cualquier mensaje de error anterior del reset
             reset_message_text.value = "" 
             reset_message_text.color = ft.Colors.BLACK
         else:
@@ -339,7 +341,6 @@ def main(page: ft.Page):
         admin_login_button.visible = True
         admin_logout_button.visible = False
         
-        # Limpiar cualquier mensaje de error anterior del reset
         reset_message_text.value = "" 
         reset_message_text.color = ft.Colors.BLACK
         page.update()
@@ -359,11 +360,12 @@ def main(page: ft.Page):
         expand=True 
     )
 
+    # --- CAMBIO APLICADO AQUÍ: ELIMINADO 'width' fijo, confiando en 'expand=True'
     nombre_input = ft.TextField(
         label="Tu Nombre (requerido para seleccionar)",
-        width=300,
         hint_text="Ingresa tu nombre aquí",
-        on_change=lambda e: actualizar_ui()
+        on_change=lambda e: actualizar_ui(),
+        expand=True # Agregado expand=True para que ocupe todo el ancho disponible si no tiene un padre con width fijo
     )
     mensaje_error = ft.Text("", color=ft.Colors.RED_500)
 
@@ -373,9 +375,9 @@ def main(page: ft.Page):
         liberar_mensaje_error.value = ""
         page.update()
 
+    # --- CAMBIO APLICADO AQUÍ: ELIMINADO 'width' fijo, confiando en 'expand=True'
     nombre_a_liberar_input = ft.TextField(
         label="Nombre a liberar (exacto)",
-        width=300,
         hint_text="Ej: Juan Pérez",
         on_change=limpiar_liberar_mensaje,
         expand=True
@@ -604,12 +606,8 @@ def main(page: ft.Page):
 
     def perform_reset_and_close_dialog(e):
         if not is_admin_logged_in:
-            # Este mensaje ya no se va a mostrar aquí, sino en on_reset_button_click
-            # admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
-            # admin_login_message.color = ft.Colors.RED_500
             reset_alert_dialog.open = False
-            # page.update(admin_login_message) # No actualizamos admin_login_message aquí
-            page.update() # Solo actualizamos la página
+            page.update() 
             return
 
         reset_rifa_db()
@@ -618,7 +616,7 @@ def main(page: ft.Page):
         mensaje_error.value = "La rifa ha sido reseteada."
         nombre_input.value = ""
         reset_alert_dialog.open = False
-        reset_message_text.value = "La rifa ha sido reseteada correctamente." # Mensaje de éxito
+        reset_message_text.value = "La rifa ha sido reseteada correctamente." 
         reset_message_text.color = ft.Colors.GREEN_700
         page.update()
 
@@ -635,19 +633,18 @@ def main(page: ft.Page):
     )
     page.overlay.append(reset_alert_dialog)
     
-    # Nuevo Text para el mensaje del botón de reseteo
     reset_message_text = ft.Text("", color=ft.Colors.RED_500)
 
     def on_reset_button_click(e):
         if not is_admin_logged_in:
             reset_message_text.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
             reset_message_text.color = ft.Colors.RED_500
-            page.update(reset_message_text) # Actualizar solo este mensaje
+            page.update(reset_message_text) 
             return
         
         print("Botón de reset total clickeado! Intentando abrir diálogo...")
         reset_alert_dialog.open = True
-        reset_message_text.value = "" # Limpiar el mensaje si el diálogo se abre
+        reset_message_text.value = "" 
         page.update(reset_alert_dialog, reset_message_text)
 
     reset_button_final = ft.ElevatedButton(
@@ -735,9 +732,9 @@ def main(page: ft.Page):
         resultado_ganador_text.color = ft.Colors.BLACK
         page.update()
 
+    # --- CAMBIO APLICADO AQUÍ: ELIMINADO 'width' fijo, confiando en 'expand=True'
     numero_ganador_input = ft.TextField(
         label="Número Ganador (00-99)",
-        width=200,
         hint_text="Ej: 42",
         input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]{0,2}$"),
         on_change=limpiar_resultado_ganador_mensaje,
@@ -811,7 +808,7 @@ def main(page: ft.Page):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=10
                 ),
-                admin_login_message, # Este mensaje se usa para el login/logout del admin
+                admin_login_message, 
                 ft.Divider(),
                 ft.Container(
                     content=ft.Column(
@@ -836,10 +833,11 @@ def main(page: ft.Page):
                 ft.Divider(),
                 
                 ft.Text("Ingresa tu nombre y selecciona un número para participar.", size=16),
-                ft.Row(
+                ft.Row( # Este Row contiene nombre_input. Asegurar que nombre_input tenga expand=True.
                     [nombre_input],
                     alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=20
+                    spacing=20,
+                    width=ft.WEB_BROWSER # Añadir ancho para que el Row pueda centrar su contenido
                 ),
                 mensaje_error,
                 ft.Container(
@@ -883,8 +881,16 @@ def main(page: ft.Page):
                             ft.Text("Libera los números de un participante específico:", size=14),
                             ft.ResponsiveRow(
                                 [
-                                    ft.Column([nombre_a_liberar_input], col={"xs": 12, "md": 6}),
-                                    ft.Column([liberar_por_contacto_button], col={"xs": 12, "md": 6}),
+                                    ft.Column(
+                                        [nombre_a_liberar_input], 
+                                        col={"xs": 12, "md": 6},
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER # Asegura centrado del input en xs
+                                    ),
+                                    ft.Column(
+                                        [liberar_por_contacto_button], 
+                                        col={"xs": 12, "md": 6},
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER # Asegura centrado del botón en xs
+                                    ),
                                 ],
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=15
@@ -909,8 +915,16 @@ def main(page: ft.Page):
                             ft.Text("Ingresa el número ganador para ver quién lo tiene:", size=14),
                             ft.ResponsiveRow(
                                 [
-                                    ft.Column([numero_ganador_input], col={"xs": 12, "md": 6}),
-                                    ft.Column([anunciar_ganador_button], col={"xs": 12, "md": 6}),
+                                    ft.Column(
+                                        [numero_ganador_input], 
+                                        col={"xs": 12, "md": 6},
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER # Asegura centrado del input en xs
+                                    ),
+                                    ft.Column(
+                                        [anunciar_ganador_button], 
+                                        col={"xs": 12, "md": 6},
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER # Asegura centrado del botón en xs
+                                    ),
                                 ],
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=15
@@ -930,10 +944,10 @@ def main(page: ft.Page):
                 ),
                 ft.Divider(),
                 reset_button_final,
-                reset_message_text, # <--- ¡Aquí está el nuevo mensaje!
+                reset_message_text, 
                 ft.Container(height=20)
             ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER, # Centra todo el contenido principal de la página
             alignment=ft.MainAxisAlignment.START,
             expand=True,
             scroll=ft.ScrollMode.ADAPTIVE
