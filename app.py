@@ -208,7 +208,7 @@ def main(page: ft.Page):
         hint_text="Ingresa tu correo o la contraseña",
         width=300,
         can_reveal_password=False,
-        expand=True # Permite que el campo ocupe el espacio disponible
+        expand=True 
     )
     admin_password_input = ft.TextField(
         label="Contraseña (Opcional)",
@@ -216,7 +216,7 @@ def main(page: ft.Page):
         password=True,
         can_reveal_password=True,
         width=300,
-        expand=True # Permite que el campo ocupe el espacio disponible
+        expand=True 
     )
     admin_login_message = ft.Text("", color=ft.Colors.RED_500)
 
@@ -299,11 +299,14 @@ def main(page: ft.Page):
             display_valor_numero.visible = False
             display_descripcion_rifa.visible = False
 
-            # Ocultar los campos de login y el botón de login
             admin_email_input.visible = False
             admin_password_input.visible = False
             admin_login_button.visible = False
             admin_logout_button.visible = True
+            
+            # Limpiar cualquier mensaje de error anterior del reset
+            reset_message_text.value = "" 
+            reset_message_text.color = ft.Colors.BLACK
         else:
             is_admin_logged_in = False
             admin_login_message.value = "Correo o contraseña incorrectos."
@@ -331,18 +334,21 @@ def main(page: ft.Page):
         display_valor_numero.visible = True
         display_descripcion_rifa.visible = True
 
-        # Mostrar los campos de login y el botón de login
         admin_email_input.visible = True
         admin_password_input.visible = True
         admin_login_button.visible = True
         admin_logout_button.visible = False
+        
+        # Limpiar cualquier mensaje de error anterior del reset
+        reset_message_text.value = "" 
+        reset_message_text.color = ft.Colors.BLACK
         page.update()
 
     admin_login_button = ft.ElevatedButton(
         "Acceder a Configuración",
         on_click=verify_admin_email_or_password,
         icon=ft.Icons.LOCK,
-        expand=True # Permite que el botón ocupe el espacio disponible
+        expand=True 
     )
     admin_logout_button = ft.FilledButton(
         "Cerrar Sesión Admin",
@@ -350,7 +356,7 @@ def main(page: ft.Page):
         icon=ft.Icons.LOCK_OPEN,
         visible=False,
         style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_700),
-        expand=True # Permite que el botón ocupe el espacio disponible
+        expand=True 
     )
 
     nombre_input = ft.TextField(
@@ -598,10 +604,12 @@ def main(page: ft.Page):
 
     def perform_reset_and_close_dialog(e):
         if not is_admin_logged_in:
-            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
-            admin_login_message.color = ft.Colors.RED_500
+            # Este mensaje ya no se va a mostrar aquí, sino en on_reset_button_click
+            # admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
+            # admin_login_message.color = ft.Colors.RED_500
             reset_alert_dialog.open = False
-            page.update(admin_login_message)
+            # page.update(admin_login_message) # No actualizamos admin_login_message aquí
+            page.update() # Solo actualizamos la página
             return
 
         reset_rifa_db()
@@ -610,6 +618,8 @@ def main(page: ft.Page):
         mensaje_error.value = "La rifa ha sido reseteada."
         nombre_input.value = ""
         reset_alert_dialog.open = False
+        reset_message_text.value = "La rifa ha sido reseteada correctamente." # Mensaje de éxito
+        reset_message_text.color = ft.Colors.GREEN_700
         page.update()
 
     reset_alert_dialog = ft.AlertDialog(
@@ -625,16 +635,20 @@ def main(page: ft.Page):
     )
     page.overlay.append(reset_alert_dialog)
     
+    # Nuevo Text para el mensaje del botón de reseteo
+    reset_message_text = ft.Text("", color=ft.Colors.RED_500)
+
     def on_reset_button_click(e):
         if not is_admin_logged_in:
-            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
-            admin_login_message.color = ft.Colors.RED_500
-            page.update(admin_login_message)
+            reset_message_text.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
+            reset_message_text.color = ft.Colors.RED_500
+            page.update(reset_message_text) # Actualizar solo este mensaje
             return
         
         print("Botón de reset total clickeado! Intentando abrir diálogo...")
         reset_alert_dialog.open = True
-        page.update()
+        reset_message_text.value = "" # Limpiar el mensaje si el diálogo se abre
+        page.update(reset_alert_dialog, reset_message_text)
 
     reset_button_final = ft.ElevatedButton(
         "Resetear Rifa Completa",
@@ -768,42 +782,36 @@ def main(page: ft.Page):
                 ft.Text("¡Bienvenido a la Aplicación de Rifa!", size=28, weight=ft.FontWeight.BOLD),
                 ft.Divider(),
                 ft.Text("Acceso a Configuración de Administrador", size=18, weight=ft.FontWeight.BOLD),
-                # === INICIO DEL CAMBIO: USANDO ResponsiveRow para el login ===
                 ft.ResponsiveRow(
                     [
-                        # Campo de correo electrónico
                         ft.Column(
                             [admin_email_input],
-                            col={"xs": 12, "md": 6}, # Ocupa 12 columnas (ancho completo) en pantallas pequeñas, 6 en medianas/grandes
+                            col={"xs": 12, "md": 6},
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        # Campo de contraseña
                         ft.Column(
                             [admin_password_input],
                             col={"xs": 12, "md": 6},
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        # Botón de acceder
                         ft.Column(
                             [admin_login_button],
                             col={"xs": 12, "md": 6},
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            visible=True # Se controla la visibilidad desde verify_admin_email_or_password
+                            visible=True
                         ),
-                         # Botón de cerrar sesión
                         ft.Column(
                             [admin_logout_button],
                             col={"xs": 12, "md": 6},
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            visible=False # Se controla la visibilidad desde verify_admin_email_or_password
+                            visible=False
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER, # Centra verticalmente los elementos en la fila
-                    spacing=10 # Espaciado entre las columnas
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=10
                 ),
-                # === FIN DEL CAMBIO ===
-                admin_login_message,
+                admin_login_message, # Este mensaje se usa para el login/logout del admin
                 ft.Divider(),
                 ft.Container(
                     content=ft.Column(
@@ -922,6 +930,7 @@ def main(page: ft.Page):
                 ),
                 ft.Divider(),
                 reset_button_final,
+                reset_message_text, # <--- ¡Aquí está el nuevo mensaje!
                 ft.Container(height=20)
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
