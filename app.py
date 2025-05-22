@@ -1,6 +1,7 @@
 import flet as ft
 import sqlite3
 import os
+import hashlib # Importar la librería hashlib
 
 DATABASE_NAME = "rifa.db"
 
@@ -76,7 +77,6 @@ def get_selected_numeros_by_person():
     conn.close()
     return selected_data
 
-# Obtener conteo de números vendidos/disponibles
 def get_numeros_counts():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
@@ -87,26 +87,24 @@ def get_numeros_counts():
     conn.close()
     return vendidos, disponibles
 
-# MODIFICADO: Ahora 'seleccionar_o_deseleccionar_numero' maneja ambos estados
 def seleccionar_o_deseleccionar_numero(numero, nombre_persona_actual, estado_actual_numero, nombre_seleccionado_por):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
 
     if estado_actual_numero == 0:  # Número disponible, intentando seleccionar
-        if nombre_persona_actual: # Solo permite seleccionar si hay un nombre
+        if nombre_persona_actual:
             cursor.execute("UPDATE numeros SET seleccionado = 1, nombre_persona = ? WHERE numero = ?", (nombre_persona_actual, numero))
             cursor.execute("INSERT OR IGNORE INTO participantes (nombre_persona, pagado) VALUES (?, 0)", (nombre_persona_actual,))
             conn.commit()
             conn.close()
-            return True # Éxito en la selección
+            return True
         else:
             conn.close()
-            return False # Fallo, no hay nombre
+            return False
     elif estado_actual_numero == 1:  # Número seleccionado, intentando deseleccionar
-        if nombre_persona_actual == nombre_seleccionado_por: # Solo permite deseleccionar si es el mismo usuario
+        if nombre_persona_actual == nombre_seleccionado_por:
             cursor.execute("UPDATE numeros SET seleccionado = 0, nombre_persona = '' WHERE numero = ?", (numero,))
             
-            # Opcional: Si el participante ya no tiene números, se podría borrar de la tabla participantes
             cursor.execute("SELECT COUNT(*) FROM numeros WHERE nombre_persona = ?", (nombre_persona_actual,))
             remaining_numbers = cursor.fetchone()[0]
             if remaining_numbers == 0:
@@ -114,12 +112,12 @@ def seleccionar_o_deseleccionar_numero(numero, nombre_persona_actual, estado_act
             
             conn.commit()
             conn.close()
-            return True # Éxito en la deselección
+            return True
         else:
             conn.close()
-            return False # Fallo, no es el usuario dueño del número
+            return False
     conn.close()
-    return False # En caso de estado inesperado
+    return False
 
 
 def reset_rifa_db():
@@ -168,7 +166,6 @@ def update_configuracion_db(valor_numero, descripcion_rifa):
     conn.commit()
     conn.close()
 
-# Función de depuración para listar todos los números de la DB
 def debug_list_all_numeros():
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
@@ -197,6 +194,165 @@ def main(page: ft.Page):
 
     global current_valor_numero, current_descripcion_rifa
     current_valor_numero, current_descripcion_rifa = get_configuracion_db()
+
+    ADMIN_EMAILS = [
+        "kenth1977@gmail.com", 
+        "jceciliano69@gmail.com", 
+        "lthikingcr@gmail.com"
+    ]
+    # Contraseña pre-encriptada (hash SHA256 de "CR129x7848n")
+    # Puedes generar este hash ejecutando:
+    # import hashlib
+    # print(hashlib.sha256("CR129x7848n".encode()).hexdigest())
+    ADMIN_PASSWORD_HASH = "8f96e2329244081c7f999f193f2f0b957635c34510b64d1f5e8f52077e69c73a" # Hash de CR129x7848n
+    
+    is_admin_logged_in = False
+
+    admin_email_input = ft.TextField(
+        label="Correo del Administrador (Opcional)",
+        hint_text="Ingresa tu correo o la contraseña",
+        width=300,
+        can_reveal_password=False # No revelar, es un correo
+    )
+    admin_password_input = ft.TextField(
+        label="Contraseña (Opcional)",
+        hint_text="Ingresa la contraseña para acceder",
+        password=True, # Oculta los caracteres
+        can_reveal_password=True, # Permite ver la contraseña si el usuario hace click
+        width=300
+    )
+    admin_login_message = ft.Text("", color=ft.Colors.RED_500)
+
+    # --- CONTROLES DE CONFIGURACIÓN ---
+    valor_numero_input = ft.TextField(
+        label="Valor de cada número",
+        value=str(int(current_valor_numero)),
+        prefix_text="¢",
+        input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*$"), 
+        width=200,
+        on_submit=lambda e: guardar_configuracion(e, "valor_numero"), # Guarda cuando se presiona Enter
+        on_blur=lambda e: guardar_configuracion(e, "valor_numero"),   # Guarda cuando el campo pierde el foco
+        visible=False
+    )
+    display_valor_numero = ft.Text(
+        f"Valor del número: ¢{current_valor_numero}", 
+        size=18, 
+        weight=ft.FontWeight.BOLD, 
+        color=ft.Colors.INDIGO_800,
+        visible=True
+    )
+
+    descripcion_rifa_input = ft.TextField(
+        label="Descripción de la Rifa",
+        value=current_descripcion_rifa,
+        multiline=True,
+        min_lines=3,
+        max_lines=5,
+        width=400,
+        hint_text="Describe el premio, las reglas, etc.",
+        on_change=lambda e: guardar_configuracion(e, "descripcion_rifa"), # Guarda en cada cambio para descripción
+        visible=False
+    )
+    display_descripcion_rifa = ft.Text(
+        current_descripcion_rifa, 
+        size=14, 
+        italic=True, 
+        color=ft.Colors.BLUE_GREY_700, 
+        text_align=ft.TextAlign.CENTER,
+        visible=True
+    )
+
+    config_admin_controls = ft.Column(
+        [
+            ft.Text("Editar Configuración", size=20, weight=ft.FontWeight.BOLD),
+            ft.Row(
+                [
+                    valor_numero_input,
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=15
+            ),
+            descripcion_rifa_input,
+        ],
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=10,
+        alignment=ft.CrossAxisAlignment.CENTER,
+        width=ft.WEB_BROWSER,
+        visible=False
+    )
+
+    def verify_admin_email_or_password(e):
+        nonlocal is_admin_logged_in
+        entered_email = admin_email_input.value.strip().lower()
+        entered_password = admin_password_input.value.strip()
+
+        # Generar el hash de la contraseña ingresada
+        entered_password_hash = hashlib.sha256(entered_password.encode()).hexdigest()
+
+        # Lógica de autenticación: El correo es correcto O la contraseña es correcta
+        is_email_correct = entered_email in ADMIN_EMAILS
+        is_password_correct = entered_password_hash == ADMIN_PASSWORD_HASH
+
+        if is_email_correct or is_password_correct:
+            is_admin_logged_in = True
+            admin_login_message.value = "Acceso de administrador concedido."
+            admin_login_message.color = ft.Colors.GREEN_700
+            
+            config_admin_controls.visible = True
+            valor_numero_input.visible = True
+            descripcion_rifa_input.visible = True
+            display_valor_numero.visible = False
+            display_descripcion_rifa.visible = False
+
+            admin_email_input.visible = False
+            admin_password_input.visible = False
+            admin_login_button.visible = False
+            admin_logout_button.visible = True
+        else:
+            is_admin_logged_in = False
+            admin_login_message.value = "Correo o contraseña incorrectos."
+            admin_login_message.color = ft.Colors.RED_500
+            
+            config_admin_controls.visible = False
+            valor_numero_input.visible = False
+            descripcion_rifa_input.visible = False
+            display_valor_numero.visible = True
+            display_descripcion_rifa.visible = True
+
+        page.update()
+
+    def admin_logout(e):
+        nonlocal is_admin_logged_in
+        is_admin_logged_in = False
+        admin_email_input.value = ""
+        admin_password_input.value = "" # Limpiar el campo de contraseña al cerrar sesión
+        admin_login_message.value = "Sesión de administrador cerrada."
+        admin_login_message.color = ft.Colors.BLACK54
+        
+        config_admin_controls.visible = False
+        valor_numero_input.visible = False
+        descripcion_rifa_input.visible = False
+        display_valor_numero.visible = True
+        display_descripcion_rifa.visible = True
+
+        admin_email_input.visible = True
+        admin_password_input.visible = True
+        admin_login_button.visible = True
+        admin_logout_button.visible = False
+        page.update()
+
+    admin_login_button = ft.ElevatedButton(
+        "Acceder a Configuración",
+        on_click=verify_admin_email_or_password,
+        icon=ft.Icons.LOCK
+    )
+    admin_logout_button = ft.FilledButton(
+        "Cerrar Sesión Admin",
+        on_click=admin_logout,
+        icon=ft.Icons.LOCK_OPEN,
+        visible=False,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_700)
+    )
 
     nombre_input = ft.TextField(
         label="Tu Nombre (requerido para seleccionar)",
@@ -235,59 +391,40 @@ def main(page: ft.Page):
         horizontal_alignment=ft.CrossAxisAlignment.START,
         expand=True
     )
-
-    valor_numero_input = ft.TextField(
-        label="Valor de cada número",
-        value=str(int(current_valor_numero)),
-        prefix_text="¢",
-        input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*$"), 
-        width=200,
-        on_change=lambda e: actualizar_valor_input_temp(e),
-        on_submit=lambda e: guardar_configuracion(e, "valor_numero")
-    )
-
-    descripcion_rifa_input = ft.TextField(
-        label="Descripción de la Rifa",
-        value=current_descripcion_rifa,
-        multiline=True,
-        min_lines=3,
-        max_lines=5,
-        width=400,
-        hint_text="Describe el premio, las reglas, etc.",
-        on_change=lambda e: guardar_configuracion(e, "descripcion_rifa")
-    )
     
-    display_descripcion_rifa = ft.Text(current_descripcion_rifa, size=14, italic=True, color=ft.Colors.BLUE_GREY_700, text_align=ft.TextAlign.CENTER)
-
     vendidos_text = ft.Text("Vendidos: 0", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700)
     disponibles_text = ft.Text("Disponibles: 100", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_700)
     
-    def actualizar_valor_input_temp(e):
-        valor_numero_input.value = e.control.value
-        valor_numero_input.error_text = None 
-        page.update()
-
-
     def guardar_configuracion(e, campo):
+        if not is_admin_logged_in:
+            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para modificar la configuración."
+            admin_login_message.color = ft.Colors.RED_500
+            page.update(admin_login_message)
+            return
+
         global current_valor_numero, current_descripcion_rifa
         try:
             if campo == "valor_numero":
-                if not valor_numero_input.value.strip():
+                # Asegúrate de tomar el valor actual del input, no del 'e.control.value' directamente,
+                # ya que 'on_blur' o 'on_submit' podrían tener 'e.control' como el TextField mismo.
+                val_str = valor_numero_input.value.strip() # Accede directamente al .value del TextField
+                if not val_str:
                     val = 0
                 else:
-                    val = int(valor_numero_input.value)
+                    val = int(val_str)
                 
                 current_valor_numero = val
-                valor_numero_input.value = str(val)
+                valor_numero_input.value = str(val) # Aseguramos que el valor se mantenga formateado en el input
                 valor_numero_input.error_text = None
                 
             elif campo == "descripcion_rifa":
                 current_descripcion_rifa = descripcion_rifa_input.value
             
             update_configuracion_db(current_valor_numero, current_descripcion_rifa)
-            display_descripcion_rifa.value = current_descripcion_rifa
-            actualizar_numeros_ui() 
-            page.update()
+            
+            # ¡Esta es la clave! Llamar a actualizar_ui() para refrescar todo lo que depende de la configuración.
+            actualizar_ui() 
+            # No necesitamos page.update() aquí porque actualizar_ui ya lo hace.
         except ValueError:
             valor_numero_input.error_text = "Valor inválido. Debe ser un número entero."
             page.update()
@@ -301,34 +438,32 @@ def main(page: ft.Page):
         for num_str, seleccionado, nombre_persona_del_db in todos_los_numeros:
             card_content = [
                 ft.Text(f"Número: {num_str}", size=18, weight=ft.FontWeight.BOLD),
-                ft.Text(f"¢{current_valor_numero}", size=12, color=ft.Colors.INDIGO_700, weight=ft.FontWeight.W_600),
+                ft.Text(f"¢{current_valor_numero}", size=12, color=ft.Colors.INDIGO_700, weight=ft.FontWeight.W_600), # Usa current_valor_numero
             ]
             
             card_color = ft.Colors.BLUE_GREY_100
-            is_clickable = True # Por defecto es clickable
-
+            is_clickable = True 
             tooltip_text = ""
 
-            if seleccionado: # Número ya seleccionado
+            if seleccionado:
                 card_content.append(ft.Text(f"Por: {nombre_persona_del_db}", size=12, color=ft.Colors.GREEN_700))
-                card_color = ft.Colors.GREY_300
                 tooltip_text = f"Seleccionado por {nombre_persona_del_db}"
 
-                if current_nombre == nombre_persona_del_db: # Seleccionado por el usuario actual
-                    card_color = ft.Colors.AMBER_100 # Color diferente para sus números seleccionados
+                if current_nombre == nombre_persona_del_db:
+                    card_color = ft.Colors.AMBER_100
                     tooltip_text = f"Clic para deseleccionar {num_str}"
-                else: # Seleccionado por otra persona
+                else:
                     is_clickable = False
-                    card_color = ft.Colors.RED_100 # Color diferente para números de otros
+                    card_color = ft.Colors.RED_100
                     
-            else: # Número disponible
+            else:
                 card_content.append(ft.Text("Disponible", size=12, color=ft.Colors.GREY_500))
-                if not current_nombre: # Disponible pero sin nombre ingresado
+                if not current_nombre:
                     is_clickable = False
                     card_color = ft.Colors.BLUE_GREY_50
                     card_content.append(ft.Text("(Ingresa tu nombre)", size=10, color=ft.Colors.AMBER_700))
                     tooltip_text = "Ingresa tu nombre para seleccionar"
-                else: # Disponible y con nombre ingresado
+                else:
                     tooltip_text = f"Clic para seleccionar {num_str}"
 
 
@@ -340,18 +475,17 @@ def main(page: ft.Page):
                     page.update()
                     return
                 
-                # Intentar seleccionar o deseleccionar
                 exito = seleccionar_o_deseleccionar_numero(numero, nombre_actual_en_input, estado_sel, persona_db)
 
                 if exito:
-                    mensaje_error.value = "" # Limpia cualquier mensaje de error anterior
-                    actualizar_ui() # Refresca toda la UI para reflejar el cambio
+                    mensaje_error.value = ""
+                    actualizar_ui() 
                 else:
-                    if estado_sel == 0: # Falló la selección (nombre no ingresado)
+                    if estado_sel == 0:
                         mensaje_error.value = "No se pudo seleccionar. Asegúrate de ingresar tu nombre."
-                    elif estado_sel == 1: # Falló la deselección (no es el dueño)
+                    elif estado_sel == 1:
                         mensaje_error.value = f"El número {numero} fue seleccionado por {persona_db}. Solo {persona_db} puede deseleccionarlo."
-                    page.update()
+                    page.update(mensaje_error)
 
             numero_card = ft.Card(
                 content=ft.Container(
@@ -362,7 +496,7 @@ def main(page: ft.Page):
                     padding=10,
                     bgcolor=card_color,
                     border_radius=ft.border_radius.all(10),
-                    on_click=on_numero_click if is_clickable else None, # Solo clickable si is_clickable es True
+                    on_click=on_numero_click if is_clickable else None,
                     ink=is_clickable,
                     tooltip=tooltip_text
                 ),
@@ -384,9 +518,17 @@ def main(page: ft.Page):
                 numeros_formateados = numeros_concatenados.replace(",", ", ")
 
                 def on_radio_change(e, persona_nombre=nombre):
+                    if not is_admin_logged_in:
+                        admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para cambiar el estado de pago."
+                        admin_login_message.color = ft.Colors.RED_500
+                        e.control.value = str(1 - int(e.control.value)) 
+                        page.update(admin_login_message, e.control)
+                        return
+
                     nuevo_estado = int(e.control.value) 
                     update_pago_status_db(persona_nombre, nuevo_estado)
-                    page.update(e.control) 
+                    admin_login_message.value = ""
+                    page.update(e.control, admin_login_message) 
 
                 radio_group_pago = ft.RadioGroup(
                     value=str(pagado_status),
@@ -431,10 +573,24 @@ def main(page: ft.Page):
     def actualizar_ui():
         global current_valor_numero, current_descripcion_rifa
         current_valor_numero, current_descripcion_rifa = get_configuracion_db()
-        valor_numero_input.value = str(int(current_valor_numero)) 
-        descripcion_rifa_input.value = current_descripcion_rifa
+        
+        display_valor_numero.value = f"Valor del número: ¢{current_valor_numero}"
         display_descripcion_rifa.value = current_descripcion_rifa
         
+        if is_admin_logged_in:
+            valor_numero_input.value = str(int(current_valor_numero)) 
+            descripcion_rifa_input.value = current_descripcion_rifa
+            valor_numero_input.visible = True
+            descripcion_rifa_input.visible = True
+            config_admin_controls.visible = True # Asegurar que el contenedor de edición esté visible
+        else:
+            valor_numero_input.visible = False
+            descripcion_rifa_input.visible = False
+            config_admin_controls.visible = False # Asegurar que el contenedor de edición esté oculto
+
+            display_valor_numero.visible = True
+            display_descripcion_rifa.visible = True
+
         actualizar_numeros_ui()
         actualizar_lista_seleccionados_ui()
         actualizar_conteo_numeros_ui()
@@ -446,6 +602,13 @@ def main(page: ft.Page):
         page.update()
 
     def perform_reset_and_close_dialog(e):
+        if not is_admin_logged_in:
+            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
+            admin_login_message.color = ft.Colors.RED_500
+            reset_alert_dialog.open = False
+            page.update(admin_login_message)
+            return
+
         reset_rifa_db()
         debug_list_all_numeros() 
         actualizar_ui()
@@ -468,6 +631,12 @@ def main(page: ft.Page):
     page.overlay.append(reset_alert_dialog)
     
     def on_reset_button_click(e):
+        if not is_admin_logged_in:
+            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para resetear la rifa."
+            admin_login_message.color = ft.Colors.RED_500
+            page.update(admin_login_message)
+            return
+        
         print("Botón de reset total clickeado! Intentando abrir diálogo...")
         reset_alert_dialog.open = True
         page.update()
@@ -488,6 +657,13 @@ def main(page: ft.Page):
         page.update()
 
     def perform_liberar_by_contact_and_close_dialog(e):
+        if not is_admin_logged_in:
+            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para liberar números por contacto."
+            admin_login_message.color = ft.Colors.RED_500
+            liberar_por_contacto_alert_dialog.open = False
+            page.update(admin_login_message)
+            return
+
         nombre = nombre_a_liberar_input.value.strip()
         if not nombre:
             liberar_mensaje_error.value = "Error interno: Nombre no proporcionado."
@@ -515,6 +691,12 @@ def main(page: ft.Page):
     page.overlay.append(liberar_por_contacto_alert_dialog)
 
     def on_liberar_by_contact_button_click(e):
+        if not is_admin_logged_in:
+            admin_login_message.value = "Acceso denegado. Debes iniciar sesión como administrador para liberar números por contacto."
+            admin_login_message.color = ft.Colors.RED_500
+            page.update(admin_login_message)
+            return
+
         nombre = nombre_a_liberar_input.value.strip()
         if not nombre:
             liberar_mensaje_error.value = "Ingresa el nombre del participante para liberar sus números."
@@ -590,23 +772,27 @@ def main(page: ft.Page):
             [
                 ft.Text("¡Bienvenido a la Aplicación de Rifa!", size=28, weight=ft.FontWeight.BOLD),
                 ft.Divider(),
+                ft.Text("Acceso a Configuración de Administrador", size=18, weight=ft.FontWeight.BOLD),
+                ft.Row(
+                    [
+                        admin_email_input,
+                        admin_password_input, # Campo de contraseña
+                        admin_login_button,
+                        admin_logout_button
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=10
+                ),
+                admin_login_message,
+                ft.Divider(),
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Text("Configuración de la Rifa", size=20, weight=ft.FontWeight.BOLD),
-                            ft.Row(
-                                [
-                                    valor_numero_input,
-                                    ft.Container(width=20),
-                                    ft.Column([
-                                        ft.Text("Descripción de la Rifa Actual:", size=12, color=ft.Colors.GREY_700),
-                                        display_descripcion_rifa,
-                                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
-                                ],
-                                alignment=ft.MainAxisAlignment.CENTER,
-                                spacing=15
-                            ),
-                            descripcion_rifa_input,
+                            ft.Text("Detalles de la Rifa", size=20, weight=ft.FontWeight.BOLD),
+                            display_valor_numero, 
+                            ft.Text("Descripción de la Rifa:", size=12, color=ft.Colors.GREY_700),
+                            display_descripcion_rifa, 
+                            config_admin_controls,
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=10,
@@ -620,6 +806,7 @@ def main(page: ft.Page):
                     border=ft.border.all(1, ft.Colors.BLUE_GREY_200)
                 ),
                 ft.Divider(),
+                
                 ft.Text("Ingresa tu nombre y selecciona un número para participar.", size=16),
                 ft.Row(
                     [nombre_input],
@@ -728,12 +915,10 @@ def main(page: ft.Page):
         page.update()
     page.on_resize = on_page_resize
 
-    actualizar_ui()
+    actualizar_ui() # Llamar al inicio para establecer el estado inicial
 
 if __name__ == "__main__":
     # Opcional: Eliminar la base de datos al inicio para pruebas limpias
-    # Descomentar si quieres que la base de datos se borre cada vez que inicies la app
-    # Comentar de nuevo para mantener los datos en producción
     # if os.path.exists(DATABASE_NAME):
     #     os.remove(DATABASE_NAME)
     #     print(f"Archivo de base de datos '{DATABASE_NAME}' eliminado para un inicio limpio.")
