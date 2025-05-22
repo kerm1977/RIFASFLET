@@ -1,7 +1,7 @@
 import flet as ft
 import sqlite3
 import os
-import hashlib # Importar la librería hashlib
+import hashlib 
 
 DATABASE_NAME = "rifa.db"
 
@@ -178,7 +178,6 @@ def debug_list_all_numeros():
     else:
         for num, sel, name in all_numeros:
             print(f"Número: {num}, Seleccionado: {sel}, Por: {name if name else 'N/A'}")
-    print(f"Total de números en la DB: {len(all_numeros)}")
     print("---------------------------------------------------\n")
 
 
@@ -200,10 +199,6 @@ def main(page: ft.Page):
         "jceciliano69@gmail.com", 
         "lthikingcr@gmail.com"
     ]
-    # Contraseña pre-encriptada (hash SHA256 de "CR129x7848n")
-    # Puedes generar este hash ejecutando:
-    # import hashlib
-    # print(hashlib.sha256("CR129x7848n".encode()).hexdigest())
     ADMIN_PASSWORD_HASH = "8f96e2329244081c7f999f193f2f0b957635c34510b64d1f5e8f52077e69c73a" # Hash de CR129x7848n
     
     is_admin_logged_in = False
@@ -212,14 +207,16 @@ def main(page: ft.Page):
         label="Correo del Administrador (Opcional)",
         hint_text="Ingresa tu correo o la contraseña",
         width=300,
-        can_reveal_password=False # No revelar, es un correo
+        can_reveal_password=False,
+        expand=True # Permite que el campo ocupe el espacio disponible
     )
     admin_password_input = ft.TextField(
         label="Contraseña (Opcional)",
         hint_text="Ingresa la contraseña para acceder",
-        password=True, # Oculta los caracteres
-        can_reveal_password=True, # Permite ver la contraseña si el usuario hace click
-        width=300
+        password=True,
+        can_reveal_password=True,
+        width=300,
+        expand=True # Permite que el campo ocupe el espacio disponible
     )
     admin_login_message = ft.Text("", color=ft.Colors.RED_500)
 
@@ -230,8 +227,8 @@ def main(page: ft.Page):
         prefix_text="¢",
         input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*$"), 
         width=200,
-        on_submit=lambda e: guardar_configuracion(e, "valor_numero"), # Guarda cuando se presiona Enter
-        on_blur=lambda e: guardar_configuracion(e, "valor_numero"),   # Guarda cuando el campo pierde el foco
+        on_submit=lambda e: guardar_configuracion(e, "valor_numero"),
+        on_blur=lambda e: guardar_configuracion(e, "valor_numero"),
         visible=False
     )
     display_valor_numero = ft.Text(
@@ -250,7 +247,7 @@ def main(page: ft.Page):
         max_lines=5,
         width=400,
         hint_text="Describe el premio, las reglas, etc.",
-        on_change=lambda e: guardar_configuracion(e, "descripcion_rifa"), # Guarda en cada cambio para descripción
+        on_change=lambda e: guardar_configuracion(e, "descripcion_rifa"),
         visible=False
     )
     display_descripcion_rifa = ft.Text(
@@ -286,10 +283,8 @@ def main(page: ft.Page):
         entered_email = admin_email_input.value.strip().lower()
         entered_password = admin_password_input.value.strip()
 
-        # Generar el hash de la contraseña ingresada
         entered_password_hash = hashlib.sha256(entered_password.encode()).hexdigest()
 
-        # Lógica de autenticación: El correo es correcto O la contraseña es correcta
         is_email_correct = entered_email in ADMIN_EMAILS
         is_password_correct = entered_password_hash == ADMIN_PASSWORD_HASH
 
@@ -304,6 +299,7 @@ def main(page: ft.Page):
             display_valor_numero.visible = False
             display_descripcion_rifa.visible = False
 
+            # Ocultar los campos de login y el botón de login
             admin_email_input.visible = False
             admin_password_input.visible = False
             admin_login_button.visible = False
@@ -325,7 +321,7 @@ def main(page: ft.Page):
         nonlocal is_admin_logged_in
         is_admin_logged_in = False
         admin_email_input.value = ""
-        admin_password_input.value = "" # Limpiar el campo de contraseña al cerrar sesión
+        admin_password_input.value = ""
         admin_login_message.value = "Sesión de administrador cerrada."
         admin_login_message.color = ft.Colors.BLACK54
         
@@ -335,6 +331,7 @@ def main(page: ft.Page):
         display_valor_numero.visible = True
         display_descripcion_rifa.visible = True
 
+        # Mostrar los campos de login y el botón de login
         admin_email_input.visible = True
         admin_password_input.visible = True
         admin_login_button.visible = True
@@ -344,14 +341,16 @@ def main(page: ft.Page):
     admin_login_button = ft.ElevatedButton(
         "Acceder a Configuración",
         on_click=verify_admin_email_or_password,
-        icon=ft.Icons.LOCK
+        icon=ft.Icons.LOCK,
+        expand=True # Permite que el botón ocupe el espacio disponible
     )
     admin_logout_button = ft.FilledButton(
         "Cerrar Sesión Admin",
         on_click=admin_logout,
         icon=ft.Icons.LOCK_OPEN,
         visible=False,
-        style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_700)
+        style=ft.ButtonStyle(bgcolor=ft.Colors.AMBER_700),
+        expand=True # Permite que el botón ocupe el espacio disponible
     )
 
     nombre_input = ft.TextField(
@@ -405,16 +404,14 @@ def main(page: ft.Page):
         global current_valor_numero, current_descripcion_rifa
         try:
             if campo == "valor_numero":
-                # Asegúrate de tomar el valor actual del input, no del 'e.control.value' directamente,
-                # ya que 'on_blur' o 'on_submit' podrían tener 'e.control' como el TextField mismo.
-                val_str = valor_numero_input.value.strip() # Accede directamente al .value del TextField
+                val_str = valor_numero_input.value.strip()
                 if not val_str:
                     val = 0
                 else:
                     val = int(val_str)
                 
                 current_valor_numero = val
-                valor_numero_input.value = str(val) # Aseguramos que el valor se mantenga formateado en el input
+                valor_numero_input.value = str(val)
                 valor_numero_input.error_text = None
                 
             elif campo == "descripcion_rifa":
@@ -422,9 +419,7 @@ def main(page: ft.Page):
             
             update_configuracion_db(current_valor_numero, current_descripcion_rifa)
             
-            # ¡Esta es la clave! Llamar a actualizar_ui() para refrescar todo lo que depende de la configuración.
             actualizar_ui() 
-            # No necesitamos page.update() aquí porque actualizar_ui ya lo hace.
         except ValueError:
             valor_numero_input.error_text = "Valor inválido. Debe ser un número entero."
             page.update()
@@ -438,7 +433,7 @@ def main(page: ft.Page):
         for num_str, seleccionado, nombre_persona_del_db in todos_los_numeros:
             card_content = [
                 ft.Text(f"Número: {num_str}", size=18, weight=ft.FontWeight.BOLD),
-                ft.Text(f"¢{current_valor_numero}", size=12, color=ft.Colors.INDIGO_700, weight=ft.FontWeight.W_600), # Usa current_valor_numero
+                ft.Text(f"¢{current_valor_numero}", size=12, color=ft.Colors.INDIGO_700, weight=ft.FontWeight.W_600),
             ]
             
             card_color = ft.Colors.BLUE_GREY_100
@@ -582,11 +577,11 @@ def main(page: ft.Page):
             descripcion_rifa_input.value = current_descripcion_rifa
             valor_numero_input.visible = True
             descripcion_rifa_input.visible = True
-            config_admin_controls.visible = True # Asegurar que el contenedor de edición esté visible
+            config_admin_controls.visible = True
         else:
             valor_numero_input.visible = False
             descripcion_rifa_input.visible = False
-            config_admin_controls.visible = False # Asegurar que el contenedor de edición esté oculto
+            config_admin_controls.visible = False
 
             display_valor_numero.visible = True
             display_descripcion_rifa.visible = True
@@ -773,16 +768,41 @@ def main(page: ft.Page):
                 ft.Text("¡Bienvenido a la Aplicación de Rifa!", size=28, weight=ft.FontWeight.BOLD),
                 ft.Divider(),
                 ft.Text("Acceso a Configuración de Administrador", size=18, weight=ft.FontWeight.BOLD),
-                ft.Row(
+                # === INICIO DEL CAMBIO: USANDO ResponsiveRow para el login ===
+                ft.ResponsiveRow(
                     [
-                        admin_email_input,
-                        admin_password_input, # Campo de contraseña
-                        admin_login_button,
-                        admin_logout_button
+                        # Campo de correo electrónico
+                        ft.Column(
+                            [admin_email_input],
+                            col={"xs": 12, "md": 6}, # Ocupa 12 columnas (ancho completo) en pantallas pequeñas, 6 en medianas/grandes
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        # Campo de contraseña
+                        ft.Column(
+                            [admin_password_input],
+                            col={"xs": 12, "md": 6},
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        # Botón de acceder
+                        ft.Column(
+                            [admin_login_button],
+                            col={"xs": 12, "md": 6},
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            visible=True # Se controla la visibilidad desde verify_admin_email_or_password
+                        ),
+                         # Botón de cerrar sesión
+                        ft.Column(
+                            [admin_logout_button],
+                            col={"xs": 12, "md": 6},
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            visible=False # Se controla la visibilidad desde verify_admin_email_or_password
+                        ),
                     ],
                     alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=10
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER, # Centra verticalmente los elementos en la fila
+                    spacing=10 # Espaciado entre las columnas
                 ),
+                # === FIN DEL CAMBIO ===
                 admin_login_message,
                 ft.Divider(),
                 ft.Container(
@@ -915,7 +935,7 @@ def main(page: ft.Page):
         page.update()
     page.on_resize = on_page_resize
 
-    actualizar_ui() # Llamar al inicio para establecer el estado inicial
+    actualizar_ui() 
 
 if __name__ == "__main__":
     # Opcional: Eliminar la base de datos al inicio para pruebas limpias
